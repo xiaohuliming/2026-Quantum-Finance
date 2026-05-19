@@ -1,0 +1,10 @@
+pandas
+numpy
+scipy
+h5py
+yfinance
+pyyaml
+matplotlib
+gymnasium
+stable-baselines3
+

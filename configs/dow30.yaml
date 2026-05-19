@@ -1,0 +1,80 @@
+dataset:
+  name: DOW30
+  path: data/DOW30/processed.csv
+  price_column_preference: [adj_close, close]
+  date_column_candidates: [date, datetime]
+  ticker_column_candidates: [ticker, tic, symbol]
+  keep_all_tickers: true
+
+split:
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+
+backtest:
+  initial_capital: 1.0
+  transaction_cost_rate: 0.001
+  annualization_factor: 252
+
+classical:
+  min_variance:
+    lookback_window: 60
+  mean_variance:
+    lookback_window: 60
+    risk_aversion: 10.0
+
+opl:
+  ons:
+    beta: 1.0
+    delta: 0.125
+    eta: 0.01
+  pamr:
+    epsilon: 0.5
+    C: 500.0
+    variant: 0
+  olmar:
+    window: 5
+    epsilon: 10.0
+
+plain_rl:
+  algorithm: PPO
+  lookback_window: 20
+  total_timesteps: 5000
+  transaction_cost_rate: 0.001
+  seed: 42
+
+qpl:
+  lookback_window: 252
+  n_levels: 1
+  n_bins: 80
+  epsilon_touch: 0.01
+  momentum_window: 5
+  use_open_anchor: true
+  min_multiplier: 0.50
+  max_multiplier: 1.10
+  support_boost: 1.10
+  resistance_cut: 0.70
+  breakdown_cut: 0.50
+  neutral_multiplier: 1.00
+
+qpl_strategy:
+  base_weight: equal
+  support_boost: 1.10
+  resistance_cut: 0.70
+  breakdown_cut: 0.50
+  neutral_multiplier: 1.00
+  max_single_weight: 0.25
+
+qpl_rl:
+  algorithm: PPO
+  lookback_window: 20
+  total_timesteps: 5000
+  transaction_cost_rate: 0.001
+  seed: 42
+  lambda_tc: 1.0
+  lambda_dd: 0.1
+  lambda_qpl: 0.05
+  max_single_weight: null
+
+output:
+  result_dir: results
