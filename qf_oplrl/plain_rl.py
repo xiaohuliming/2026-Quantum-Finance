@@ -7,15 +7,25 @@ import pandas as pd
 from qf_oplrl.metrics import compute_metrics
 from qf_oplrl.plain_rl_env import PlainPortfolioEnv
 from qf_oplrl.splits import split_by_time
+from qf_oplrl.technical_indicators import build_lagged_technical_features
 
 
-def train_ppo(train_returns: pd.DataFrame, rl_config: dict):
+def train_ppo(
+    train_returns: pd.DataFrame,
+    rl_config: dict,
+    technical_features: dict[str, pd.DataFrame] | None = None,
+    use_technical_state: bool = False,
+    technical_feature_names: list[str] | None = None,
+):
     from stable_baselines3 import PPO
 
     env = PlainPortfolioEnv(
         train_returns,
         lookback_window=int(rl_config.get("lookback_window", 20)),
         transaction_cost_rate=float(rl_config.get("transaction_cost_rate", 0.001)),
+        use_technical_state=use_technical_state,
+        technical_features=technical_features,
+        technical_feature_names=technical_feature_names,
     )
     model = PPO(
         "MlpPolicy",
@@ -29,11 +39,22 @@ def train_ppo(train_returns: pd.DataFrame, rl_config: dict):
     return model
 
 
-def evaluate_model(model, test_returns: pd.DataFrame, rl_config: dict) -> dict:
+def evaluate_model(
+    model,
+    test_returns: pd.DataFrame,
+    rl_config: dict,
+    technical_features: dict[str, pd.DataFrame] | None = None,
+    use_technical_state: bool = False,
+    technical_feature_names: list[str] | None = None,
+    method_name: str = "Plain PPO",
+) -> dict:
     env = PlainPortfolioEnv(
         test_returns,
         lookback_window=int(rl_config.get("lookback_window", 20)),
         transaction_cost_rate=float(rl_config.get("transaction_cost_rate", 0.001)),
+        use_technical_state=use_technical_state,
+        technical_features=technical_features,
+        technical_feature_names=technical_feature_names,
     )
     observation, _ = env.reset()
     records = []
@@ -50,12 +71,12 @@ def evaluate_model(model, test_returns: pd.DataFrame, rl_config: dict) -> dict:
     weights = pd.DataFrame(
         [record["weights"] for record in records],
         index=index,
-        columns=test_returns.columns,
+        columns=env.tickers,
     )
     portfolio_value = pd.Series(
         [record["portfolio_value"] for record in records],
         index=index,
-        name="Plain PPO",
+        name=method_name,
     )
     daily_return = pd.Series([record["daily_return"] for record in records], index=index)
     turnover = pd.Series([record["turnover"] for record in records], index=index)
@@ -69,33 +90,73 @@ def evaluate_model(model, test_returns: pd.DataFrame, rl_config: dict) -> dict:
     }
 
 
+def _save_plain_result(dataset_dir: Path, model, result: dict, metrics_row: dict, subdir: str | None = None) -> None:
+    target_dir = dataset_dir if subdir is None else dataset_dir / subdir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    model.save(target_dir / "model.zip")
+    result["weights"].to_csv(target_dir / "test_weights.csv")
+    result["portfolio_value"].to_csv(target_dir / "test_portfolio_value.csv")
+    metrics_name = "metrics.csv" if subdir is None else f"{subdir}_metrics.csv"
+    pd.DataFrame([metrics_row]).to_csv(dataset_dir / metrics_name, index=False)
+
+
 def run_plain_rl_for_dataset(data, config: dict, output_dir: Path) -> pd.DataFrame:
     rl_config = config.get("plain_rl", {})
+    technical_config = config.get("technical_indicators", {})
+    technical_enabled = bool(technical_config.get("enabled", False))
     split = split_by_time(data.returns, **config.get("split", {}))
     train_returns = split.train
     test_returns = split.test
-
-    model = train_ppo(train_returns, rl_config)
-    result = evaluate_model(model, test_returns, rl_config)
+    technical_features = None
+    technical_feature_names = technical_config.get("feature_names")
+    if technical_enabled:
+        technical_features = build_lagged_technical_features(
+            data.prices,
+            data.returns.index,
+            technical_config,
+        )
 
     dataset_dir = output_dir / data.dataset_name
     dataset_dir.mkdir(parents=True, exist_ok=True)
-    model.save(dataset_dir / "model.zip")
-    result["weights"].to_csv(dataset_dir / "test_weights.csv")
-    result["portfolio_value"].to_csv(dataset_dir / "test_portfolio_value.csv")
+    rows = []
 
-    metrics = compute_metrics(
-        result,
-        initial_capital=float(config.get("backtest", {}).get("initial_capital", 1.0)),
-        annualization_factor=int(config.get("backtest", {}).get("annualization_factor", 252)),
-    )
-    metrics_row = {
-        "Dataset": data.dataset_name,
-        "Method": "Plain PPO",
-        "Method Type": "RL",
-        **metrics,
-    }
-    metrics_frame = pd.DataFrame([metrics_row])
-    metrics_frame.to_csv(dataset_dir / "metrics.csv", index=False)
+    for method_name, use_tech, subdir in [
+        ("Plain PPO", False, None),
+        ("Plain PPO + Tech State", True, "tech_state"),
+    ]:
+        if use_tech and not technical_enabled:
+            continue
+        model = train_ppo(
+            train_returns,
+            rl_config,
+            technical_features=technical_features,
+            use_technical_state=use_tech,
+            technical_feature_names=technical_feature_names,
+        )
+        result = evaluate_model(
+            model,
+            test_returns,
+            rl_config,
+            technical_features=technical_features,
+            use_technical_state=use_tech,
+            technical_feature_names=technical_feature_names,
+            method_name=method_name,
+        )
+        metrics = compute_metrics(
+            result,
+            initial_capital=float(config.get("backtest", {}).get("initial_capital", 1.0)),
+            annualization_factor=int(config.get("backtest", {}).get("annualization_factor", 252)),
+        )
+        metrics_row = {
+            "Dataset": data.dataset_name,
+            "Method": method_name,
+            "Method Type": "RL",
+            "Use Technical State": use_tech,
+            **metrics,
+        }
+        _save_plain_result(dataset_dir, model, result, metrics_row, subdir=subdir)
+        rows.append(metrics_row)
+
+    metrics_frame = pd.DataFrame(rows)
+    metrics_frame.to_csv(dataset_dir / "all_metrics.csv", index=False)
     return metrics_frame
-

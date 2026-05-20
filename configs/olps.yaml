@@ -77,5 +77,41 @@ qpl_rl:
   lambda_qpl: 0.05
   max_single_weight: null
 
+technical_indicators:
+  enabled: true
+  shift_features: true
+  features:
+    ma_ratio:
+      windows: [5, 20]
+    rsi:
+      window: 14
+    macd:
+      fast: 12
+      slow: 26
+      signal: 9
+    volatility:
+      window: 20
+      annualize: false
+  clip_value: 10.0
+
+qpl_gate_v2:
+  enabled: true
+  mode: continuous_action_aware
+  g_min: 0.30
+  g_max: 1.20
+  alpha_support: 0.15
+  beta_resistance: 0.35
+  gamma_breakdown: 0.50
+  delta_volatility: 0.10
+  eta_drawdown: 0.20
+  support_band: 0.01
+  resistance_band: 0.01
+  volatility_window: 20
+  volatility_ratio_cap: 3.0
+  momentum_scale: 0.05
+  drawdown_scale: 0.20
+  use_high_low_touch: true
+  fallback_to_close_touch: true
+
 output:
   result_dir: results

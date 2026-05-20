@@ -53,7 +53,14 @@ def bcrp(price_relatives: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def pamr(price_relatives: pd.DataFrame, epsilon: float = 0.5, c_value: float = 500.0) -> pd.DataFrame:
+def pamr(
+    price_relatives: pd.DataFrame,
+    epsilon: float = 0.5,
+    c_value: float = 500.0,
+    variant: int = 0,
+) -> pd.DataFrame:
+    if variant not in {0, 1, 2}:
+        raise ValueError("PAMR variant must be one of 0, 1, 2")
     n_assets = price_relatives.shape[1]
     current_weight = np.full(n_assets, 1.0 / n_assets)
     weights = []
@@ -65,7 +72,15 @@ def pamr(price_relatives: pd.DataFrame, epsilon: float = 0.5, c_value: float = 5
         centered = x - x_mean
         loss = max(0.0, float(current_weight @ x - epsilon))
         denominator = float(centered @ centered)
-        tau = 0.0 if denominator <= EPS else min(c_value, loss / denominator)
+        if denominator <= EPS:
+            tau = 0.0
+        elif variant == 0:
+            tau = loss / denominator
+        elif variant == 1:
+            tau = min(c_value, loss / denominator)
+        else:
+            tau = loss / (denominator + 0.5 / max(c_value, EPS))
+        tau = min(100000.0, tau)
         current_weight = project_to_simplex(current_weight - tau * centered)
 
     return pd.DataFrame(weights, index=price_relatives.index, columns=price_relatives.columns)
@@ -131,6 +146,7 @@ def generate_opl_weights(
             price_relatives,
             epsilon=float(pamr_config.get("epsilon", 0.5)),
             c_value=float(pamr_config.get("C", 500.0)),
+            variant=int(pamr_config.get("variant", 0)),
         ),
         "OLMAR": olmar(
             price_relatives,
@@ -144,4 +160,3 @@ def generate_opl_weights(
             eta=float(ons_config.get("eta", 0.01)),
         ),
     }
-

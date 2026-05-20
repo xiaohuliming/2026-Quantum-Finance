@@ -64,6 +64,24 @@ def plot_weight_heatmap(weights: pd.DataFrame, title: str, output_path: Path) ->
     plt.close(fig)
 
 
+def plot_gate_multiplier_heatmap(multipliers: pd.DataFrame, title: str, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if multipliers.empty:
+        return
+    sample = multipliers.iloc[:: max(1, len(multipliers) // 300)]
+    fig, ax = plt.subplots(figsize=(12, 7))
+    image = ax.imshow(sample.T, aspect="auto", interpolation="nearest", vmin=0.3, vmax=1.2)
+    ax.set_title(title)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Ticker")
+    ax.set_yticks(range(len(sample.columns)))
+    ax.set_yticklabels(sample.columns, fontsize=6)
+    fig.colorbar(image, ax=ax, label="Gate multiplier")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160)
+    plt.close(fig)
+
+
 def plot_qpl_trigger_example(
     prices: pd.Series,
     qpl_plus: pd.Series,

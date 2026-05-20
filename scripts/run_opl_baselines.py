@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +79,15 @@ def main() -> None:
             value_series[method] = result["portfolio_value"]
             test_weights.to_csv(weights_dir / f"{method.lower().replace(' ', '_')}_weights.csv")
 
-        pd.DataFrame(metrics_rows).to_csv(output_dir / "opl_metrics.csv", index=False)
+        metrics_frame = pd.DataFrame(metrics_rows)
+        if "BCRP" in metrics_frame["Method"].values:
+            bcrp_final = float(
+                metrics_frame.loc[metrics_frame["Method"] == "BCRP", "Final Portfolio Value"].iloc[0]
+            )
+            metrics_frame["Regret_vs_BCRP"] = metrics_frame["Final Portfolio Value"].apply(
+                lambda value: float(np.log(max(bcrp_final, 1e-12)) - np.log(max(float(value), 1e-12)))
+            )
+        metrics_frame.to_csv(output_dir / "opl_metrics.csv", index=False)
         save_series_frame(output_dir / "opl_values.csv", value_series)
         print(f"Wrote OPL baseline results for {data.dataset_name} to {output_dir}")
 

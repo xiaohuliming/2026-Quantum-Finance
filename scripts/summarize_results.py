@@ -10,15 +10,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from qf_oplrl.plots import plot_cumulative_values, plot_drawdowns, plot_weight_heatmap
+from qf_oplrl.plots import (
+    plot_cumulative_values,
+    plot_drawdowns,
+    plot_gate_multiplier_heatmap,
+    plot_weight_heatmap,
+)
 
 
 QPL_VARIANT_LABELS = {
     "plain_ppo_reproduced": "Plain PPO Reproduced",
+    "plain_ppo_tech_state": "Plain PPO + Tech State",
     "ppo_qpl_state": "PPO + QPL State",
-    "ppo_qpl_gate": "PPO + QPL Gate",
-    "ppo_qpl_state_gate": "PPO + QPL State + Gate",
-    "full_qf_oplrl": "Full QF-OPLRL",
+    "ppo_qpl_gate": "PPO + QPL Gate V1",
+    "ppo_qpl_gate_v2": "PPO + QPL Gate V2",
+    "ppo_qpl_state_gate": "PPO + QPL State + Gate V1",
+    "ppo_qpl_state_gate_v2": "PPO + QPL State + Gate V2",
+    "full_qf_oplrl": "Full QF-OPLRL V1",
+    "full_qf_oplrl_v2": "Full QF-OPLRL V2",
 }
 
 
@@ -48,6 +57,11 @@ def read_values(
     if rl_value_path.exists():
         frame = pd.read_csv(rl_value_path, index_col=0, parse_dates=True)
         frame.columns = ["RL - Plain PPO"]
+        frames.append(frame)
+    rl_tech_value_path = plain_rl_dir / dataset_name / "tech_state" / "test_portfolio_value.csv"
+    if rl_tech_value_path.exists():
+        frame = pd.read_csv(rl_tech_value_path, index_col=0, parse_dates=True)
+        frame.columns = ["RL - Plain PPO + Tech State"]
         frames.append(frame)
     qpl_value_path = qpl_baselines_dir / dataset_name / "qpl_rule_values.csv"
     if qpl_value_path.exists():
@@ -110,6 +124,9 @@ def main() -> None:
     if plain_rl_dir.exists():
         for metrics_path in sorted(plain_rl_dir.glob("*/metrics.csv")):
             basic_metric_frames.append(pd.read_csv(metrics_path))
+        for metrics_path in sorted(plain_rl_dir.glob("*/*_metrics.csv")):
+            if metrics_path.name == "tech_state_metrics.csv":
+                basic_metric_frames.append(pd.read_csv(metrics_path))
 
     final_metric_frames = list(basic_metric_frames)
     if qpl_baselines_dir.exists():
@@ -171,9 +188,24 @@ def main() -> None:
         if full_qpl_weight_path.exists():
             plot_weight_heatmap(
                 pd.read_csv(full_qpl_weight_path, index_col=0, parse_dates=True),
-                f"{dataset_name} weights: Full QF-OPLRL",
+                f"{dataset_name} weights: Full QF-OPLRL V1",
                 figures_dir / f"{dataset_name}_full_qf_oplrl_weight_heatmap.png",
             )
+        full_qpl_v2_weight_path = qpl_ablation_dir / dataset_name / "full_qf_oplrl_v2" / "test_weights.csv"
+        if full_qpl_v2_weight_path.exists():
+            plot_weight_heatmap(
+                pd.read_csv(full_qpl_v2_weight_path, index_col=0, parse_dates=True),
+                f"{dataset_name} weights: Full QF-OPLRL V2",
+                figures_dir / f"{dataset_name}_full_qf_oplrl_v2_weight_heatmap.png",
+            )
+        for variant_key in ["ppo_qpl_gate", "ppo_qpl_gate_v2", "full_qf_oplrl", "full_qf_oplrl_v2"]:
+            multiplier_path = qpl_ablation_dir / dataset_name / variant_key / "test_gate_multipliers.csv"
+            if multiplier_path.exists():
+                plot_gate_multiplier_heatmap(
+                    pd.read_csv(multiplier_path, index_col=0, parse_dates=True),
+                    f"{dataset_name} gate multipliers: {QPL_VARIANT_LABELS.get(variant_key, variant_key)}",
+                    figures_dir / f"{dataset_name}_{variant_key}_gate_multiplier_heatmap.png",
+                )
         print(f"Wrote figures for {dataset_name}")
 
 
