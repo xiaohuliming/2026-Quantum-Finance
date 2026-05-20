@@ -17,11 +17,17 @@ from qf_oplrl.qpl import build_qpl_package
 OUTPUT_FILES = {
     "qpl_plus_1": "qpl_plus_1.csv",
     "qpl_minus_1": "qpl_minus_1.csv",
+    "nqpr_1": "qpl_nqpr_1.csv",
     "qpl_d_plus": "qpl_d_plus.csv",
     "qpl_d_minus": "qpl_d_minus.csv",
     "qpl_z": "qpl_z.csv",
     "qpl_signal": "qpl_signal.csv",
     "qpl_momentum": "qpl_momentum.csv",
+    "touch_plus_by_high": "qpl_touch_plus_by_high.csv",
+    "touch_minus_by_low": "qpl_touch_minus_by_low.csv",
+    "intraday_breakout": "qpl_intraday_breakout.csv",
+    "intraday_breakdown": "qpl_intraday_breakdown.csv",
+    "method_used": "qpl_method_used.csv",
 }
 
 
@@ -42,13 +48,21 @@ def main() -> None:
     base_output_dir = result_dir(config) / "qpl_features"
     figures_dir = result_dir(config) / "figures"
     for data in datasets:
-        package = build_qpl_package(data.prices, config.get("qpl", {}))
+        package = build_qpl_package(data.ohlcv, config.get("qpl", {}))
         output_dir = base_output_dir / data.dataset_name
         output_dir.mkdir(parents=True, exist_ok=True)
         for key, file_name in OUTPUT_FILES.items():
+            if key not in package:
+                continue
             frame = package[key].copy()
             frame.index.name = "date"
             frame.to_csv(output_dir / file_name)
+        for key, frame in package.items():
+            if key in OUTPUT_FILES or not hasattr(frame, "to_csv"):
+                continue
+            frame = frame.copy()
+            frame.index.name = "date"
+            frame.to_csv(output_dir / f"{key}.csv")
 
         signal_values = sorted(package["qpl_signal"].stack().dropna().unique().tolist())
         ticker = data.prices.columns[0]
@@ -68,4 +82,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

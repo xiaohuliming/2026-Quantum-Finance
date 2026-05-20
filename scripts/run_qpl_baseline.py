@@ -40,7 +40,7 @@ def main() -> None:
         output_dir = base_output_dir / data.dataset_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        qpl_package = build_qpl_package(data.prices, config.get("qpl", {}))
+        qpl_package = build_qpl_package(data.ohlcv, config.get("qpl", {}))
         weights = qpl_rule_weights(
             data.returns,
             qpl_package["qpl_signal"],
@@ -81,4 +81,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

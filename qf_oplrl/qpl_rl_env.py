@@ -42,6 +42,7 @@ class QPLPortfolioEnv(gym.Env):
         use_technical_state: bool = False,
         technical_features: dict[str, pd.DataFrame] | None = None,
         technical_feature_names: list[str] | None = None,
+        qpl_execution_features: dict[str, pd.DataFrame] | None = None,
         qpl_config: dict[str, Any] | None = None,
         qpl_gate_v2_config: dict[str, Any] | None = None,
         reward_config: dict[str, Any] | None = None,
@@ -73,6 +74,7 @@ class QPLPortfolioEnv(gym.Env):
         self.qpl_z = None
         self.qpl_momentum = None
         self.qpl_signal = None
+        self.qpl_execution_features: dict[str, pd.DataFrame] = {}
         self.technical_feature_names: list[str] = []
         self.technical_features: dict[str, pd.DataFrame] = {}
 
@@ -142,6 +144,11 @@ class QPLPortfolioEnv(gym.Env):
             if self.qpl_signal is not None:
                 self.qpl_signal = self.qpl_signal.loc[aligned.index, aligned.columns]
 
+        if qpl_execution_features is not None:
+            for name, frame in qpl_execution_features.items():
+                if isinstance(frame, pd.DataFrame):
+                    self.qpl_execution_features[name] = frame.reindex(index=aligned.index, columns=aligned.columns)
+
         if len(aligned) <= self.lookback_window + 1:
             raise ValueError("Not enough aligned return rows for the requested lookback window")
 
@@ -159,6 +166,16 @@ class QPLPortfolioEnv(gym.Env):
         self.previous_weights = np.full(self.n_assets, 1.0 / self.n_assets, dtype=np.float32)
         self.portfolio_value = 1.0
         self.peak_value = 1.0
+
+    def _execution_row(self, name: str, step: int, fallback: pd.Series | None = None) -> pd.Series:
+        frame = self.qpl_execution_features.get(name)
+        if frame is not None:
+            row = frame.iloc[step]
+            if row.notna().any():
+                return row
+        if fallback is not None:
+            return fallback
+        return pd.Series(0.0, index=self.tickers)
 
     def _get_observation(self) -> np.ndarray:
         end = min(self.current_step, len(self.returns))
@@ -206,11 +223,25 @@ class QPLPortfolioEnv(gym.Env):
             assert self.qpl_d_minus is not None
             assert self.qpl_signal is not None
             assert self.qpl_momentum is not None
+            # Gate V2 uses same-day high/low touch as execution/risk simulation.
+            # The observation still receives lagged QPL features before action.
             qpl_row = {
-                "qpl_d_plus": self.qpl_d_plus.iloc[self.current_step],
-                "qpl_d_minus": self.qpl_d_minus.iloc[self.current_step],
-                "qpl_signal": self.qpl_signal.iloc[self.current_step],
-                "qpl_momentum": self.qpl_momentum.iloc[self.current_step],
+                "qpl_d_plus": self._execution_row("qpl_d_plus", self.current_step, self.qpl_d_plus.iloc[self.current_step]),
+                "qpl_d_minus": self._execution_row(
+                    "qpl_d_minus",
+                    self.current_step,
+                    self.qpl_d_minus.iloc[self.current_step],
+                ),
+                "qpl_signal": self._execution_row("qpl_signal", self.current_step, self.qpl_signal.iloc[self.current_step]),
+                "qpl_momentum": self._execution_row(
+                    "qpl_momentum",
+                    self.current_step,
+                    self.qpl_momentum.iloc[self.current_step],
+                ),
+                "touch_plus_by_high": self._execution_row("touch_plus_by_high", self.current_step),
+                "touch_minus_by_low": self._execution_row("touch_minus_by_low", self.current_step),
+                "intraday_breakout": self._execution_row("intraday_breakout", self.current_step),
+                "intraday_breakdown": self._execution_row("intraday_breakdown", self.current_step),
             }
             tech_row = None
             if self.use_technical_state:
@@ -242,7 +273,7 @@ class QPLPortfolioEnv(gym.Env):
         turnover = float(np.abs(weights - self.previous_weights).sum())
         transaction_cost = self.transaction_cost_rate * turnover
         net_return = gross_return - transaction_cost
-        base_reward = float(np.log(max(1.0 + net_return, EPS)))
+        base_reward = float(np.log(max(1.0 + gross_return, EPS)))
 
         self.portfolio_value *= 1.0 + net_return
         self.peak_value = max(self.peak_value, self.portfolio_value)
@@ -257,6 +288,7 @@ class QPLPortfolioEnv(gym.Env):
 
         reward = (
             base_reward
+            - float(self.reward_config.get("lambda_tc", 1.0)) * transaction_cost
             + float(self.reward_config.get("lambda_qpl", 0.05)) * qpl_bonus
             - float(self.reward_config.get("lambda_dd", 0.1)) * current_drawdown
         )
@@ -279,5 +311,6 @@ class QPLPortfolioEnv(gym.Env):
             "portfolio_value": self.portfolio_value,
             "drawdown": current_drawdown,
             "qpl_bonus": qpl_bonus,
+            "base_reward": base_reward,
         }
         return observation, float(reward), terminated, truncated, info

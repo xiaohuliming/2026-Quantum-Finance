@@ -83,8 +83,10 @@ def compute_qpl_gate_scores(
     n_assets = raw.size
     previous = _as_array(previous_weights, n_assets, default=1.0 / n_assets).clip(min=0.0)
 
-    add_intent = np.maximum(raw - previous, 0.0)
-    reduce_intent = np.maximum(previous - raw, 0.0)
+    action_eps = float(config.get("action_eps", 1e-4))
+    delta_weight = raw - previous
+    add_intent = np.where(delta_weight > action_eps, delta_weight, 0.0)
+    reduce_intent = np.where(delta_weight < -action_eps, -delta_weight, 0.0)
     add_intent_score = np.clip(add_intent * n_assets, 0.0, 1.0)
     reduce_intent_score = np.clip(reduce_intent * n_assets, 0.0, 1.0)
 
@@ -92,10 +94,15 @@ def compute_qpl_gate_scores(
     d_plus = _row_value(qpl_feature_row, ["qpl_d_plus", "d_plus"], n_assets, default=1.0)
     signal = _row_value(qpl_feature_row, ["qpl_signal", "signal"], n_assets, default=0.0)
     momentum = _row_value(qpl_feature_row, ["qpl_momentum", "momentum"], n_assets, default=0.0)
+    touch_plus = _row_value(qpl_feature_row, ["touch_plus_by_high", "touch_plus_by_high_1"], n_assets, default=0.0)
+    touch_minus = _row_value(qpl_feature_row, ["touch_minus_by_low", "touch_minus_by_low_1"], n_assets, default=0.0)
+    intraday_breakout = _row_value(qpl_feature_row, ["intraday_breakout", "intraday_breakout_1"], n_assets, default=0.0)
+    intraday_breakdown = _row_value(qpl_feature_row, ["intraday_breakdown", "intraday_breakdown_1"], n_assets, default=0.0)
 
-    support_score = _score_near(d_minus, float(config.get("support_band", 0.01)))
-    resistance_score = _score_near(d_plus, float(config.get("resistance_band", 0.01)))
-    breakdown_score = np.where((signal <= -2) | (d_minus < 0.0), 1.0, 0.0)
+    support_score = np.maximum(_score_near(d_minus, float(config.get("support_band", 0.01))), touch_minus)
+    resistance_score = np.maximum(_score_near(d_plus, float(config.get("resistance_band", 0.01))), touch_plus)
+    breakdown_score = np.maximum(np.where((signal <= -2) | (d_minus < 0.0), 1.0, 0.0), intraday_breakdown)
+    failed_breakout_score = np.where((touch_plus > 0) & (intraday_breakout <= 0), 1.0, 0.0)
     positive_momentum_score, weak_momentum_score = _momentum_scores(
         momentum,
         float(config.get("momentum_scale", 0.05)),
@@ -104,27 +111,87 @@ def compute_qpl_gate_scores(
     drawdown_scale = max(float(config.get("drawdown_scale", 0.20)), EPS)
     portfolio_drawdown_score = np.clip(float(portfolio_drawdown) / drawdown_scale, 0.0, 1.0)
 
-    alpha_support = float(config.get("alpha_support", 0.15))
-    beta_resistance = float(config.get("beta_resistance", 0.35))
-    gamma_breakdown = float(config.get("gamma_breakdown", 0.50))
-    delta_volatility = float(config.get("delta_volatility", 0.10))
-    eta_drawdown = float(config.get("eta_drawdown", 0.20))
+    alpha_support = float(config.get("support_rebound_bonus", config.get("alpha_support", 0.15)))
+    beta_resistance = float(config.get("resistance_penalty", config.get("beta_resistance", 0.35)))
+    failed_breakout_weight = float(config.get("failed_breakout_penalty", 0.15))
+    gamma_breakdown = float(config.get("breakdown_penalty", config.get("gamma_breakdown", 0.50)))
+    delta_volatility = float(config.get("volatility_penalty", config.get("delta_volatility", 0.10)))
+    eta_drawdown = float(config.get("drawdown_penalty", config.get("eta_drawdown", 0.20)))
 
     attraction = support_score * positive_momentum_score * add_intent_score * alpha_support
-    resistance_penalty = resistance_score * weak_momentum_score * add_intent_score * beta_resistance
+    resistance_penalty = resistance_score * (0.25 + 0.75 * weak_momentum_score) * add_intent_score * beta_resistance
+    failed_breakout_penalty = failed_breakout_score * weak_momentum_score * add_intent_score * failed_breakout_weight
     breakdown_penalty = breakdown_score * (0.5 + 0.5 * weak_momentum_score) * gamma_breakdown
     volatility_penalty = high_volatility_score * (0.5 + 0.5 * add_intent_score) * delta_volatility
     risk_score = np.maximum.reduce([resistance_score, breakdown_score, high_volatility_score])
     drawdown_penalty = risk_score * portfolio_drawdown_score * eta_drawdown
 
     release = 1.0 - 0.5 * reduce_intent_score
-    total_penalty = (resistance_penalty + breakdown_penalty + volatility_penalty + drawdown_penalty) * release
+    total_penalty = (
+        resistance_penalty
+        + failed_breakout_penalty
+        + breakdown_penalty
+        + volatility_penalty
+        + drawdown_penalty
+    ) * release
     multiplier = 1.0 + attraction - total_penalty
     return np.clip(
         multiplier,
         float(config.get("g_min", 0.30)),
         float(config.get("g_max", 1.20)),
     )
+
+
+def apply_qpl_gate_v2(
+    raw_weights,
+    previous_weights,
+    qpl_features: dict[str, np.ndarray] | dict[str, pd.Series],
+    technical_features: dict[str, np.ndarray] | dict[str, pd.Series] | None = None,
+    portfolio_drawdown: float = 0.0,
+    config: dict[str, Any] | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Apply deterministic touch-aware Gate V2 and return diagnostics."""
+    weights = apply_qpl_gate_v2_to_weight_vector(
+        raw_weights,
+        previous_weights,
+        qpl_features,
+        tech_feature_row=technical_features,
+        portfolio_drawdown=portfolio_drawdown,
+        qpl_config=config,
+    )
+    multipliers = compute_qpl_gate_scores(
+        raw_weights,
+        previous_weights,
+        qpl_features,
+        tech_feature_row=technical_features,
+        portfolio_drawdown=portfolio_drawdown,
+        qpl_config=config,
+    )
+    n_assets = len(multipliers)
+    reasons: list[list[str]] = [[] for _ in range(n_assets)]
+    touch_plus = _row_value(qpl_features, ["touch_plus_by_high", "touch_plus_by_high_1"], n_assets, default=0.0)
+    touch_minus = _row_value(qpl_features, ["touch_minus_by_low", "touch_minus_by_low_1"], n_assets, default=0.0)
+    intraday_breakdown = _row_value(qpl_features, ["intraday_breakdown", "intraday_breakdown_1"], n_assets, default=0.0)
+    raw = _as_array(raw_weights, n_assets, default=0.0)
+    previous = _as_array(previous_weights, n_assets, default=1.0 / n_assets)
+    action_eps = float((config or {}).get("action_eps", 1e-4))
+    for i in range(n_assets):
+        if raw[i] - previous[i] > action_eps:
+            reasons[i].append("add_intent")
+        if previous[i] - raw[i] > action_eps:
+            reasons[i].append("reduce_intent")
+        if touch_plus[i] > 0:
+            reasons[i].append("touch_plus_by_high")
+        if touch_minus[i] > 0:
+            reasons[i].append("touch_minus_by_low")
+        if intraday_breakdown[i] > 0:
+            reasons[i].append("intraday_breakdown")
+    diagnostics = {
+        "gate_multipliers": multipliers,
+        "reasons": reasons,
+        "portfolio_drawdown": float(portfolio_drawdown),
+    }
+    return weights, diagnostics
 
 
 def apply_qpl_gate_v2_to_weight_vector(
@@ -190,4 +257,3 @@ def apply_qpl_gate_v2_to_weights(
             )
         )
     return pd.DataFrame(weights, index=common_index, columns=common_columns)
-

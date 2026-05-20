@@ -44,6 +44,25 @@ plain_rl:
   seed: 42
 
 qpl:
+  method: qaho_qfse
+  fallback_method: rolling_vol_proxy
+  window: 252
+  num_levels: 2
+  num_bins: 101
+  anchor: open
+  density_method: histogram
+  density_smoothing: 1.0
+  potential: qaho
+  hbar: 1.0
+  mass: 1.0
+  c_gamma_d: 1.0
+  c_gamma_v: 0.0
+  nqpr_scale: 1.0
+  nqpr_clip_min: 1.0001
+  nqpr_clip_max: 1.5
+  qpl_eps: 1.0e-8
+  use_high_low_touch: true
+  fallback_to_close_touch: true
   lookback_window: 252
   n_levels: 1
   n_bins: 80
@@ -76,6 +95,24 @@ qpl_rl:
   lambda_qpl: 0.05
   max_single_weight: null
 
+reward:
+  lambda_tc: 1.0
+  lambda_dd: 0.1
+  lambda_qpl: 0.05
+
+gate:
+  version: v2
+  mode: deterministic
+  action_eps: 1.0e-4
+  g_min: 0.30
+  g_max: 1.20
+  resistance_penalty: 0.20
+  failed_breakout_penalty: 0.15
+  support_rebound_bonus: 0.10
+  breakdown_penalty: 0.35
+  volatility_penalty: 0.10
+  drawdown_penalty: 0.10
+
 technical_indicators:
   enabled: true
   shift_features: true
@@ -96,8 +133,15 @@ technical_indicators:
 qpl_gate_v2:
   enabled: true
   mode: continuous_action_aware
+  action_eps: 1.0e-4
   g_min: 0.30
   g_max: 1.20
+  resistance_penalty: 0.20
+  failed_breakout_penalty: 0.15
+  support_rebound_bonus: 0.10
+  breakdown_penalty: 0.35
+  volatility_penalty: 0.10
+  drawdown_penalty: 0.10
   alpha_support: 0.15
   beta_resistance: 0.35
   gamma_breakdown: 0.50

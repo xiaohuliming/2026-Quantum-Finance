@@ -106,6 +106,7 @@ def _build_env(
     variant: dict[str, Any],
     technical_features: dict[str, pd.DataFrame] | None = None,
     technical_feature_names: list[str] | None = None,
+    qpl_execution_features: dict[str, pd.DataFrame] | None = None,
 ) -> QPLPortfolioEnv:
     return QPLPortfolioEnv(
         returns,
@@ -119,6 +120,7 @@ def _build_env(
         use_qpl_reward=bool(variant["use_qpl_reward"]),
         technical_features=technical_features,
         technical_feature_names=technical_feature_names,
+        qpl_execution_features=qpl_execution_features,
         qpl_config=qpl_config,
         qpl_gate_v2_config=qpl_gate_v2_config,
         reward_config=rl_config,
@@ -134,6 +136,7 @@ def train_qpl_ppo(
     variant: dict[str, Any],
     technical_features: dict[str, pd.DataFrame] | None = None,
     technical_feature_names: list[str] | None = None,
+    qpl_execution_features: dict[str, pd.DataFrame] | None = None,
 ):
     if str(rl_config.get("algorithm", "PPO")).upper() != "PPO":
         raise ValueError("Only PPO is currently supported for QPL RL")
@@ -148,6 +151,7 @@ def train_qpl_ppo(
         variant,
         technical_features=technical_features,
         technical_feature_names=technical_feature_names,
+        qpl_execution_features=qpl_execution_features,
     )
     model = PPO(
         "MlpPolicy",
@@ -171,6 +175,7 @@ def evaluate_qpl_model(
     variant: dict[str, Any],
     technical_features: dict[str, pd.DataFrame] | None = None,
     technical_feature_names: list[str] | None = None,
+    qpl_execution_features: dict[str, pd.DataFrame] | None = None,
 ) -> dict:
     env = _build_env(
         test_returns,
@@ -181,6 +186,7 @@ def evaluate_qpl_model(
         variant,
         technical_features=technical_features,
         technical_feature_names=technical_feature_names,
+        qpl_execution_features=qpl_execution_features,
     )
     observation, _ = env.reset()
     records = []
@@ -224,14 +230,19 @@ def run_qpl_ablation_for_dataset(
     variants: list[str] | None = None,
 ) -> pd.DataFrame:
     qpl_config = config.get("qpl", {})
-    qpl_gate_v2_config = config.get("qpl_gate_v2", {})
-    rl_config = config.get("qpl_rl", {})
+    qpl_gate_v2_config = {**config.get("qpl_gate_v2", {}), **config.get("gate", {})}
+    rl_config = {**config.get("qpl_rl", {}), **config.get("reward", {})}
     technical_config = config.get("technical_indicators", {})
     backtest_config = config.get("backtest", {})
     split = split_by_time(data.returns, **config.get("split", {}))
     train_returns = split.train
     test_returns = split.test
     lagged_features = lag_qpl_package_for_returns(qpl_package, data.returns.index)
+    execution_features = {
+        name: frame.reindex(data.returns.index)
+        for name, frame in qpl_package.items()
+        if isinstance(frame, pd.DataFrame)
+    }
     technical_features = None
     technical_feature_names = technical_config.get("feature_names")
     if bool(technical_config.get("enabled", False)):
@@ -264,6 +275,7 @@ def run_qpl_ablation_for_dataset(
             variant,
             technical_features=technical_features,
             technical_feature_names=technical_feature_names,
+            qpl_execution_features=execution_features,
         )
         result = evaluate_qpl_model(
             model,
@@ -275,6 +287,7 @@ def run_qpl_ablation_for_dataset(
             variant,
             technical_features=technical_features,
             technical_feature_names=technical_feature_names,
+            qpl_execution_features=execution_features,
         )
 
         model.save(variant_dir / "model.zip")

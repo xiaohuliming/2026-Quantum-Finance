@@ -45,7 +45,7 @@ def main() -> None:
     metrics_frames = []
     for data in datasets:
         print(f"Training QPL ablation variants for {data.dataset_name}")
-        qpl_package = build_qpl_package(data.prices, config.get("qpl", {}))
+        qpl_package = build_qpl_package(data.ohlcv, config.get("qpl", {}))
         metrics_frames.append(
             run_qpl_ablation_for_dataset(data, qpl_package, config, output_dir, variants=args.variant)
         )
@@ -58,4 +58,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
