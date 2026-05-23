@@ -38,6 +38,7 @@ class QPLPortfolioEnv(gym.Env):
         use_qpl_state: bool = False,
         use_qpl_gate: bool = False,
         use_qpl_gate_v2: bool = False,
+        use_qpl_gate_v3: bool = False,
         use_qpl_reward: bool = False,
         use_technical_state: bool = False,
         technical_features: dict[str, pd.DataFrame] | None = None,
@@ -51,6 +52,7 @@ class QPLPortfolioEnv(gym.Env):
         self.use_qpl_state = bool(use_qpl_state)
         self.use_qpl_gate = bool(use_qpl_gate)
         self.use_qpl_gate_v2 = bool(use_qpl_gate_v2)
+        self.use_qpl_gate_v3 = bool(use_qpl_gate_v3)
         self.use_qpl_reward = bool(use_qpl_reward)
         self.use_technical_state = bool(use_technical_state)
         self.qpl_config = qpl_config or {}
@@ -59,10 +61,17 @@ class QPLPortfolioEnv(gym.Env):
         self.lookback_window = int(lookback_window)
         self.transaction_cost_rate = float(transaction_cost_rate)
 
-        if self.use_qpl_gate and self.use_qpl_gate_v2:
-            raise ValueError("Use either QPL Gate V1 or Gate V2, not both at the same time")
+        active_gates = [self.use_qpl_gate, self.use_qpl_gate_v2, self.use_qpl_gate_v3]
+        if sum(bool(flag) for flag in active_gates) > 1:
+            raise ValueError("Use only one of QPL Gate V1 / V2 / V3 at a time")
 
-        needs_qpl = self.use_qpl_state or self.use_qpl_gate or self.use_qpl_gate_v2 or self.use_qpl_reward
+        needs_qpl = (
+            self.use_qpl_state
+            or self.use_qpl_gate
+            or self.use_qpl_gate_v2
+            or self.use_qpl_gate_v3
+            or self.use_qpl_reward
+        )
         if needs_qpl and qpl_features is None:
             raise ValueError("QPL features are required for the selected QPL RL mode")
         if self.use_technical_state and not technical_features:
@@ -73,6 +82,7 @@ class QPLPortfolioEnv(gym.Env):
         self.qpl_d_minus = None
         self.qpl_z = None
         self.qpl_momentum = None
+        self.lee_momentum = None
         self.qpl_signal = None
         self.qpl_execution_features: dict[str, pd.DataFrame] = {}
         self.technical_feature_names: list[str] = []
@@ -81,19 +91,22 @@ class QPLPortfolioEnv(gym.Env):
         if needs_qpl:
             assert qpl_features is not None
             required_frames: list[pd.DataFrame] = []
-            if self.use_qpl_state or self.use_qpl_gate_v2:
+            if self.use_qpl_state or self.use_qpl_gate_v2 or self.use_qpl_gate_v3:
                 self.qpl_d_plus = _feature_from_package(qpl_features, "qpl_d_plus", "d_plus")
                 self.qpl_d_minus = _feature_from_package(qpl_features, "qpl_d_minus", "d_minus")
                 required_frames.extend([self.qpl_d_plus, self.qpl_d_minus])
             if self.use_qpl_state:
                 self.qpl_z = _feature_from_package(qpl_features, "qpl_z", "z_qpl")
                 required_frames.append(self.qpl_z)
-            if self.use_qpl_gate or self.use_qpl_gate_v2 or self.use_qpl_reward:
+            if self.use_qpl_gate or self.use_qpl_gate_v2 or self.use_qpl_gate_v3 or self.use_qpl_reward:
                 self.qpl_signal = _feature_from_package(qpl_features, "qpl_signal", "signal")
                 required_frames.append(self.qpl_signal)
-            if self.use_qpl_gate_v2:
+            if self.use_qpl_gate_v2 or self.use_qpl_gate_v3:
                 self.qpl_momentum = _feature_from_package(qpl_features, "qpl_momentum", "momentum")
                 required_frames.append(self.qpl_momentum)
+            if self.use_qpl_gate_v3:
+                self.lee_momentum = _feature_from_package(qpl_features, "lee_momentum")
+                required_frames.append(self.lee_momentum)
 
             common_index = aligned.index
             common_columns = aligned.columns
@@ -113,18 +126,22 @@ class QPLPortfolioEnv(gym.Env):
             aligned_frames = [frame.loc[finite_mask] for frame in aligned_frames]
 
             cursor = 0
-            if self.use_qpl_state or self.use_qpl_gate_v2:
+            if self.use_qpl_state or self.use_qpl_gate_v2 or self.use_qpl_gate_v3:
                 self.qpl_d_plus = aligned_frames[cursor].astype(np.float32)
                 self.qpl_d_minus = aligned_frames[cursor + 1].astype(np.float32)
                 cursor += 2
             if self.use_qpl_state:
                 self.qpl_z = aligned_frames[cursor].astype(np.float32)
                 cursor += 1
-            if self.use_qpl_gate or self.use_qpl_gate_v2 or self.use_qpl_reward:
+            if self.use_qpl_gate or self.use_qpl_gate_v2 or self.use_qpl_gate_v3 or self.use_qpl_reward:
                 self.qpl_signal = aligned_frames[cursor].fillna(0).astype(int)
                 cursor += 1
-            if self.use_qpl_gate_v2:
+            if self.use_qpl_gate_v2 or self.use_qpl_gate_v3:
                 self.qpl_momentum = aligned_frames[cursor].astype(np.float32)
+                cursor += 1
+            if self.use_qpl_gate_v3:
+                self.lee_momentum = aligned_frames[cursor].astype(np.float32)
+                cursor += 1
 
         if self.use_technical_state:
             aligned, self.technical_features = align_technical_features(
@@ -141,6 +158,8 @@ class QPLPortfolioEnv(gym.Env):
                 self.qpl_z = self.qpl_z.loc[aligned.index, aligned.columns]
             if self.qpl_momentum is not None:
                 self.qpl_momentum = self.qpl_momentum.loc[aligned.index, aligned.columns]
+            if self.lee_momentum is not None:
+                self.lee_momentum = self.lee_momentum.loc[aligned.index, aligned.columns]
             if self.qpl_signal is not None:
                 self.qpl_signal = self.qpl_signal.loc[aligned.index, aligned.columns]
 
@@ -218,13 +237,20 @@ class QPLPortfolioEnv(gym.Env):
             signal_row = self.qpl_signal.iloc[self.current_step]
             gate_multipliers = signal_to_multiplier(signal_row, self.qpl_config).astype(np.float32)
             weights = apply_qpl_gate_to_weight_vector(raw_weights, signal_row, self.qpl_config)
-        elif self.use_qpl_gate_v2:
+        elif self.use_qpl_gate_v2 or self.use_qpl_gate_v3:
             assert self.qpl_d_plus is not None
             assert self.qpl_d_minus is not None
             assert self.qpl_signal is not None
             assert self.qpl_momentum is not None
-            # Gate V2 uses same-day high/low touch as execution/risk simulation.
-            # The observation still receives lagged QPL features before action.
+            # Gate V2/V3 share the same downstream logic; V3 just feeds a
+            # Lee-Oscillator-encoded chaotic momentum into the gate instead of
+            # the linear pct_change momentum.
+            momentum_row = self.qpl_momentum.iloc[self.current_step]
+            momentum_lookup = "qpl_momentum"
+            if self.use_qpl_gate_v3:
+                assert self.lee_momentum is not None
+                momentum_row = self.lee_momentum.iloc[self.current_step]
+                momentum_lookup = "lee_momentum"
             qpl_row = {
                 "qpl_d_plus": self._execution_row("qpl_d_plus", self.current_step, self.qpl_d_plus.iloc[self.current_step]),
                 "qpl_d_minus": self._execution_row(
@@ -233,11 +259,7 @@ class QPLPortfolioEnv(gym.Env):
                     self.qpl_d_minus.iloc[self.current_step],
                 ),
                 "qpl_signal": self._execution_row("qpl_signal", self.current_step, self.qpl_signal.iloc[self.current_step]),
-                "qpl_momentum": self._execution_row(
-                    "qpl_momentum",
-                    self.current_step,
-                    self.qpl_momentum.iloc[self.current_step],
-                ),
+                "qpl_momentum": self._execution_row(momentum_lookup, self.current_step, momentum_row),
                 "touch_plus_by_high": self._execution_row("touch_plus_by_high", self.current_step),
                 "touch_minus_by_low": self._execution_row("touch_minus_by_low", self.current_step),
                 "intraday_breakout": self._execution_row("intraday_breakout", self.current_step),

@@ -94,6 +94,37 @@ QPL_VARIANTS = [
         "use_qpl_gate_v2": True,
         "use_qpl_reward": True,
     },
+    # ---- Gate V3 (Lee Oscillator-augmented Gate V2) variants ----
+    {
+        "key": "ppo_qpl_gate_v3",
+        "method": "PPO + QPL Gate V3 (Lee)",
+        "use_technical_state": False,
+        "use_qpl_state": False,
+        "use_qpl_gate": False,
+        "use_qpl_gate_v2": False,
+        "use_qpl_gate_v3": True,
+        "use_qpl_reward": False,
+    },
+    {
+        "key": "ppo_qpl_state_gate_v3",
+        "method": "PPO + QPL State + Gate V3 (Lee)",
+        "use_technical_state": True,
+        "use_qpl_state": True,
+        "use_qpl_gate": False,
+        "use_qpl_gate_v2": False,
+        "use_qpl_gate_v3": True,
+        "use_qpl_reward": False,
+    },
+    {
+        "key": "full_qf_oplrl_v3",
+        "method": "Full QF-OPLRL V3 (Lee)",
+        "use_technical_state": True,
+        "use_qpl_state": True,
+        "use_qpl_gate": False,
+        "use_qpl_gate_v2": False,
+        "use_qpl_gate_v3": True,
+        "use_qpl_reward": True,
+    },
 ]
 
 
@@ -117,6 +148,7 @@ def _build_env(
         use_qpl_state=bool(variant["use_qpl_state"]),
         use_qpl_gate=bool(variant["use_qpl_gate"]),
         use_qpl_gate_v2=bool(variant.get("use_qpl_gate_v2", False)),
+        use_qpl_gate_v3=bool(variant.get("use_qpl_gate_v3", False)),
         use_qpl_reward=bool(variant["use_qpl_reward"]),
         technical_features=technical_features,
         technical_feature_names=technical_feature_names,
@@ -310,6 +342,7 @@ def run_qpl_ablation_for_dataset(
             "Use QPL State": variant["use_qpl_state"],
             "Use QPL Gate": variant["use_qpl_gate"],
             "Use QPL Gate V2": variant.get("use_qpl_gate_v2", False),
+            "Use QPL Gate V3": variant.get("use_qpl_gate_v3", False),
             "Use QPL Reward": variant["use_qpl_reward"],
             **metrics,
         }
