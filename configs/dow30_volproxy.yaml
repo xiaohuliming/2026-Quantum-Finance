@@ -1,0 +1,190 @@
+dataset:
+  name: DOW30_volproxy
+  path: data/DOW30/processed.csv
+  price_column_preference: [adj_close, close]
+  date_column_candidates: [date, datetime]
+  ticker_column_candidates: [ticker, tic, symbol]
+  keep_all_tickers: true
+
+split:
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+
+backtest:
+  initial_capital: 1.0
+  transaction_cost_rate: 0.001
+  annualization_factor: 252
+
+classical:
+  min_variance:
+    lookback_window: 60
+  mean_variance:
+    lookback_window: 60
+    risk_aversion: 10.0
+
+opl:
+  ons:
+    beta: 1.0
+    delta: 0.125
+    eta: 0.01
+  pamr:
+    epsilon: 0.5
+    C: 500.0
+    variant: 0
+  olmar:
+    window: 5
+    epsilon: 10.0
+
+plain_rl:
+  algorithm: PPO
+  lookback_window: 20
+  total_timesteps: 5000
+  transaction_cost_rate: 0.001
+  seed: 42
+
+qpl:
+  method: rolling_vol_proxy
+  fallback_method: rolling_vol_proxy
+  window: 252
+  num_levels: 2
+  num_bins: 101
+  anchor: open
+  density_method: histogram
+  density_smoothing: 1.0
+  potential: qaho
+  hbar: 1.0
+  mass: 1.0
+  c_gamma_d: 1.0
+  c_gamma_v: 0.0
+  nqpr_scale: 1.0
+  nqpr_clip_min: 1.0001
+  nqpr_clip_max: 1.5
+  qpl_eps: 1.0e-8
+  use_high_low_touch: true
+  fallback_to_close_touch: true
+  lookback_window: 252
+  n_levels: 1
+  n_bins: 80
+  epsilon_touch: 0.01
+  momentum_window: 5
+  use_open_anchor: true
+  min_multiplier: 0.50
+  max_multiplier: 1.10
+  support_boost: 1.10
+  resistance_cut: 0.70
+  breakdown_cut: 0.50
+  neutral_multiplier: 1.00
+
+qpl_strategy:
+  base_weight: equal
+  support_boost: 1.10
+  resistance_cut: 0.70
+  breakdown_cut: 0.50
+  neutral_multiplier: 1.00
+  max_single_weight: 0.25
+
+qpl_rl:
+  algorithm: PPO
+  lookback_window: 20
+  total_timesteps: 5000
+  transaction_cost_rate: 0.001
+  seed: 42
+  lambda_tc: 1.0
+  lambda_dd: 0.1
+  lambda_qpl: 0.05
+  max_single_weight: null
+
+reward:
+  lambda_tc: 1.0
+  lambda_dd: 0.1
+  lambda_qpl: 0.05
+  lambda_lee: 0.30
+  lambda_whipsaw: 0.50
+
+gate:
+  version: v2
+  mode: deterministic
+  action_eps: 1.0e-4
+  g_min: 0.30
+  g_max: 1.20
+  resistance_penalty: 0.20
+  failed_breakout_penalty: 0.15
+  support_rebound_bonus: 0.10
+  breakdown_penalty: 0.35
+  volatility_penalty: 0.10
+  drawdown_penalty: 0.10
+
+technical_indicators:
+  enabled: true
+  shift_features: true
+  features:
+    ma_ratio:
+      windows: [5, 20]
+    rsi:
+      window: 14
+    macd:
+      fast: 12
+      slow: 26
+      signal: 9
+    volatility:
+      window: 20
+      annualize: false
+  clip_value: 10.0
+
+qpl_gate_v2:
+  enabled: true
+  mode: continuous_action_aware
+  action_eps: 1.0e-4
+  g_min: 0.30
+  g_max: 1.20
+  resistance_penalty: 0.20
+  failed_breakout_penalty: 0.15
+  support_rebound_bonus: 0.10
+  breakdown_penalty: 0.35
+  volatility_penalty: 0.10
+  drawdown_penalty: 0.10
+  alpha_support: 0.15
+  beta_resistance: 0.35
+  gamma_breakdown: 0.50
+  delta_volatility: 0.10
+  eta_drawdown: 0.20
+  support_band: 0.01
+  resistance_band: 0.01
+  volatility_window: 20
+  volatility_ratio_cap: 3.0
+  momentum_scale: 0.05
+  drawdown_scale: 0.20
+  use_high_low_touch: true
+  fallback_to_close_touch: true
+
+lee_oscillator:
+  lee_a1: 5.0
+  lee_a2: 5.0
+  lee_a3: 5.0
+  lee_b1: 5.0
+  lee_b2: 5.0
+  lee_b3: 5.0
+  lee_c1: 5.0
+  lee_k: 50.0
+  lee_e0: 0.2
+  lee_i0: 0.2
+  lee_theta_e: 0.0
+  lee_theta_i: 0.0
+  lee_transient_steps: 100
+
+lee_momentum:
+  lookback: 20
+  input_scale: 50.0
+  input_clip: 1.0
+
+lee_predictor:
+  lookback: 20
+  input_scale: 50.0
+  input_clip: 1.0
+  mode: soft
+  temperature: 0.2
+  max_single_weight: 0.25
+
+output:
+  result_dir: results

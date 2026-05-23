@@ -99,6 +99,8 @@ reward:
   lambda_tc: 1.0
   lambda_dd: 0.1
   lambda_qpl: 0.05
+  lambda_lee: 0.30
+  lambda_whipsaw: 0.50
 
 gate:
   version: v2
@@ -155,6 +157,34 @@ qpl_gate_v2:
   drawdown_scale: 0.20
   use_high_low_touch: true
   fallback_to_close_touch: true
+
+lee_oscillator:
+  lee_a1: 5.0
+  lee_a2: 5.0
+  lee_a3: 5.0
+  lee_b1: 5.0
+  lee_b2: 5.0
+  lee_b3: 5.0
+  lee_c1: 5.0
+  lee_k: 50.0
+  lee_e0: 0.2
+  lee_i0: 0.2
+  lee_theta_e: 0.0
+  lee_theta_i: 0.0
+  lee_transient_steps: 100
+
+lee_momentum:
+  lookback: 20
+  input_scale: 50.0
+  input_clip: 1.0
+
+lee_predictor:
+  lookback: 20
+  input_scale: 50.0
+  input_clip: 1.0
+  mode: soft
+  temperature: 0.2
+  max_single_weight: 0.25
 
 output:
   result_dir: results
